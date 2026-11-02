@@ -149,18 +149,24 @@
                                 
                                 <div class="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4 space-y-3">
                                     <h4 class="font-bold text-blue-800 text-sm"><i class="fab fa-github mr-2"></i>GitHub Online Yedekleme</h4>
+                                    
+                                    <div class="bg-white p-3 rounded border text-xs text-gray-600 mb-2">
+                                        <i class="fas fa-info-circle text-blue-500 mr-1"></i>
+                                        Eğer <strong>Token, Repo ve Dosya Yolu</strong> bilgilerini kodun içine kalıcı olarak yazdıysanız, bu alanları boş bırakabilirsiniz. Sistem gömülü ayarları otomatik kullanacaktır.
+                                    </div>
+
                                     <div>
                                         <label class="text-[10px] font-bold text-gray-600 uppercase">GitHub Token (PAT)</label>
-                                        <input type="password" id="set-gh-token" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="ghp_...">
+                                        <input type="password" id="set-gh-token" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="Gömülü token kullanılacak (veya buraya yazın)">
                                     </div>
                                     <div class="grid grid-cols-2 gap-4">
                                         <div>
                                             <label class="text-[10px] font-bold text-gray-600 uppercase">Repo (Kullanıcı/Repo)</label>
-                                            <input type="text" id="set-gh-repo" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" placeholder="ornek: mehmet/bty-sinav">
+                                            <input type="text" id="set-gh-repo" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Gömülü repo kullanılacak">
                                         </div>
                                         <div>
                                             <label class="text-[10px] font-bold text-gray-600 uppercase">Dosya Yolu</label>
-                                            <input type="text" id="set-gh-path" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" placeholder="data/db.json">
+                                            <input type="text" id="set-gh-path" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Gömülü yol kullanılacak">
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-2">
@@ -315,18 +321,42 @@
     <div id="toast-container" class="no-print"></div>
 
     <script>
-        // ==================== 1. VERİ YÖNETİMİ & AYARLAR ====================
-        let students = JSON.parse(localStorage.getItem('bty_exam_db_v2')) || [];
-        
-        let settings = JSON.parse(localStorage.getItem('bty_settings')) || {
+        // =========================================================================
+        // YÖNETİCİ AYARLARI (GÖMÜLÜ GITHUB VE KURUM BİLGİLERİ)
+        // =========================================================================
+        // DİKKAT: Cihaz bağımsız otomatik yedekleme için aşağıdaki tırnak içlerini doldurun.
+        // Güvenlik: Kodunuzu herkese açık (public) değil, GİZLİ (Private) olarak yayınlayın.
+        const HARDCODED_SETTINGS = {
+            ghToken: "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", // ÖRN: "ghp_xxxxxxxxxxxxxxxxxxxxxx"
+            ghRepo: "stmatematikbty/bty11",  // ÖRN: "kullaniciadi/reponuz"
+            ghPath: "data/sinav_verileri.json", // Dosyanın Github'daki yolu
             pin: "1234",
             schoolName: "Şerafettin Tunalı Ortaokulu",
             teacherName: "Mehmet Erdem Karagöllü",
-            principalName: "Okul Müdürü",
+            principalName: "Okul Müdürü"
+        };
+        // =========================================================================
+
+        let students = JSON.parse(localStorage.getItem('bty_exam_db_v2')) || [];
+        
+        let settings = JSON.parse(localStorage.getItem('bty_settings')) || {
+            pin: HARDCODED_SETTINGS.pin,
+            schoolName: HARDCODED_SETTINGS.schoolName,
+            teacherName: HARDCODED_SETTINGS.teacherName,
+            principalName: HARDCODED_SETTINGS.principalName,
             ghToken: "",
             ghRepo: "",
-            ghPath: "db.json"
+            ghPath: ""
         };
+
+        // Her zaman gömülü ayarları dinamik (arayüz) ayarlarıyla birleştirerek asıl kullanılacak olanı bulur.
+        function getActiveGhConfig() {
+            return {
+                token: settings.ghToken || HARDCODED_SETTINGS.ghToken,
+                repo: settings.ghRepo || HARDCODED_SETTINGS.ghRepo,
+                path: settings.ghPath || HARDCODED_SETTINGS.ghPath
+            };
+        }
 
         let currentStudent = null;
         let isFifthGrade = true;
@@ -362,6 +392,32 @@
                 }
             }
         });
+        
+        async function autoLoadFromGitHub() {
+            const gh = getActiveGhConfig();
+            if(!gh.token || !gh.repo || !gh.path) return;
+            const url = `https://api.github.com/repos/${gh.repo}/contents/${gh.path}`;
+            const headers = { 'Authorization': `token ${gh.token}`, 'Accept': 'application/vnd.github.v3+json' };
+            try {
+                const res = await fetch(url, { headers, cache: "no-store" });
+                if(res.ok) {
+                    const data = await res.json();
+                    const contentStr = decodeURIComponent(escape(atob(data.content)));
+                    const parsed = JSON.parse(contentStr);
+                    if(Array.isArray(parsed)) {
+                        students = parsed;
+                        saveDb();
+                        renderTeacherTable();
+                        updateTeacherClassFilter();
+                        renderAnalysis();
+                        updateStudentLoginDropdowns();
+                        console.log("GitHub'dan veriler otomatik yüklendi.");
+                    }
+                }
+            } catch(e) {
+                console.error("Otomatik yükleme hatası:", e);
+            }
+        }
 
         function applySettingsToUI() {
             document.getElementById('header-school-name').innerHTML = `<i class="fas fa-graduation-cap mr-2"></i>${settings.schoolName}`;
@@ -373,7 +429,7 @@
             
             document.getElementById('set-gh-token').value = settings.ghToken || "";
             document.getElementById('set-gh-repo').value = settings.ghRepo || "";
-            document.getElementById('set-gh-path').value = settings.ghPath || "db.json";
+            document.getElementById('set-gh-path').value = settings.ghPath || "";
         }
 
         function showToast(msg, type = 'info') {
@@ -407,6 +463,7 @@
             hideAllSections();
             document.getElementById('student-login-section').classList.remove('hidden');
             updateStudentLoginDropdowns();
+            autoLoadFromGitHub();
         }
 
         function requestTeacherPin() {
@@ -421,8 +478,10 @@
                 hideAllSections();
                 document.getElementById('teacher-panel-section').classList.remove('hidden');
                 switchTab('tab-report');
-                updateTeacherClassFilter();
-                renderTeacherTable();
+                autoLoadFromGitHub().then(() => {
+                    updateTeacherClassFilter();
+                    renderTeacherTable();
+                });
                 showToast("Öğretmen paneline giriş yapıldı.", "success");
             } else {
                 showToast("Hatalı PIN kodu!", "error");
@@ -445,17 +504,19 @@
             saveSettingsDb();
             applySettingsToUI();
             showToast("Ayarlar başarıyla kaydedildi.", "success");
+            autoLoadFromGitHub();
         }
         
         async function backupToGitHub(silent = false) {
-            if(!settings.ghToken || !settings.ghRepo || !settings.ghPath) {
+            const gh = getActiveGhConfig();
+            if(!gh.token || !gh.repo || !gh.path) {
                 if(!silent) showToast("GitHub ayarları eksik!", "error");
                 return;
             }
             if(!silent) showToast("GitHub'a yedekleniyor...", "info");
             
-            const url = `https://api.github.com/repos/${settings.ghRepo}/contents/${settings.ghPath}`;
-            const headers = { 'Authorization': `token ${settings.ghToken}`, 'Accept': 'application/vnd.github.v3+json' };
+            const url = `https://api.github.com/repos/${gh.repo}/contents/${gh.path}`;
+            const headers = { 'Authorization': `token ${gh.token}`, 'Accept': 'application/vnd.github.v3+json' };
             
             try {
                 let sha = null;
@@ -468,7 +529,7 @@
                 const contentStr = JSON.stringify(students, null, 2);
                 const contentB64 = btoa(unescape(encodeURIComponent(contentStr)));
                 
-                const body = { message: `Öğrenci ve Not Yedeklemesi: ${new Date().toLocaleString('tr-TR')}`, content: contentB64 };
+                const body = { message: `Sınav Verileri Otomatik Yedekleme: ${new Date().toLocaleString('tr-TR')}`, content: contentB64 };
                 if(sha) body.sha = sha;
                 
                 const putRes = await fetch(url, { method: 'PUT', headers: headers, body: JSON.stringify(body) });
@@ -476,7 +537,7 @@
                 if(putRes.ok) {
                     if(!silent) showToast("Tüm veriler GitHub'a yedeklendi!", "success");
                 } else {
-                    throw new Error("Yazma yetkisi yok veya repository hatalı.");
+                    throw new Error("Yazma yetkisi yok veya depo adı hatalı.");
                 }
             } catch(e) {
                 if(!silent) showToast("GitHub Hatası: " + e.message, "error");
@@ -485,16 +546,17 @@
         }
 
         async function restoreFromGitHub() {
-            if(!settings.ghToken || !settings.ghRepo || !settings.ghPath) return showToast("GitHub ayarları eksik!", "error");
+            const gh = getActiveGhConfig();
+            if(!gh.token || !gh.repo || !gh.path) return showToast("GitHub ayarları eksik!", "error");
             if(!confirm("Buluttaki veriler cihazdakilerin üzerine yazılacak. Emin misiniz?")) return;
             
             showToast("GitHub'dan veriler çekiliyor...", "info");
-            const url = `https://api.github.com/repos/${settings.ghRepo}/contents/${settings.ghPath}`;
-            const headers = { 'Authorization': `token ${settings.ghToken}`, 'Accept': 'application/vnd.github.v3+json' };
+            const url = `https://api.github.com/repos/${gh.repo}/contents/${gh.path}`;
+            const headers = { 'Authorization': `token ${gh.token}`, 'Accept': 'application/vnd.github.v3+json' };
             
             try {
                 const res = await fetch(url, { headers, cache: "no-store" });
-                if(!res.ok) throw new Error("Dosya bulunamadı veya yetkisiz erişim (Token kontrol edin).");
+                if(!res.ok) throw new Error("Dosya bulunamadı veya token geçersiz.");
                 const data = await res.json();
                 const contentStr = decodeURIComponent(escape(atob(data.content)));
                 const parsed = JSON.parse(contentStr);
@@ -520,6 +582,7 @@
 
             students.push({ id: Date.now().toString(), cls, name, no, score: null, date: null, mistakes: {} });
             sortStudents(); saveDb(); updateTeacherClassFilter(); renderTeacherTable();
+            backupToGitHub(true);
             document.getElementById('new-student-name').value = '';
             document.getElementById('new-student-no').value = '';
             showToast(`${name} listeye eklendi.`, "success");
@@ -543,6 +606,7 @@
             });
             if(addedCount > 0) {
                 sortStudents(); saveDb(); updateTeacherClassFilter(); renderTeacherTable();
+                backupToGitHub(true);
                 document.getElementById('bulk-students').value = '';
                 showToast(`${addedCount} öğrenci eklendi!`, "success");
             } else { showToast("Format hatası veya aynı numaralı öğrenci.", "error"); }
@@ -554,12 +618,14 @@
             if(confirm("Bu öğrenciyi ve analizini silmek istediğinize emin misiniz?")) {
                 students = students.filter(s => s.id !== id);
                 saveDb(); updateTeacherClassFilter(); renderTeacherTable(); renderAnalysis();
+                backupToGitHub(true);
             }
         }
 
         function clearAllData() {
             if(prompt("TÜM ÖĞRENCİ VERİLERİ SİLİNECEK! Onaylamak için PIN girin:") === settings.pin) {
                 students = []; saveDb(); updateTeacherClassFilter(); renderTeacherTable(); renderAnalysis();
+                backupToGitHub(true);
                 showToast("Tüm veriler sıfırlandı.", "info");
             }
         }
@@ -878,7 +944,8 @@
             if(idx > -1) students[idx] = currentStudent;
             saveDb();
 
-            if (settings.ghToken && settings.ghRepo && settings.ghPath) {
+            const gh = getActiveGhConfig();
+            if (gh.token && gh.repo && gh.path) {
                 backupToGitHub(true).then(() => {
                     finalizeClientSide();
                     showToast("Sonuçlarınız GitHub'a başarıyla yedeklendi!", "success");
